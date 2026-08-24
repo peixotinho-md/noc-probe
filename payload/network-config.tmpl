@@ -1,0 +1,14 @@
+# noc-pocket-probe - configuracao de rede do primeiro boot (formato netplan)
+# Gerado por Write-ProbeCard.ps1.
+#
+# ATENCAO: o cloud-init aplica isto UMA vez, no primeiro boot. Editar este
+# arquivo depois nao muda nada no probe. Para trocar de rede com o aparelho
+# ja rodando use o helper embarcado:
+#
+#     noc-wifi --list
+#     noc-wifi "SSID da rede" "senha"
+#
+# A interface usb0 nao aparece aqui: ela e configurada por um perfil do
+# NetworkManager gravado direto em /etc/NetworkManager/system-connections/,
+# porque precisa existir mesmo que o cloud-init nao rode.
+@@WIFI_BLOCK@@

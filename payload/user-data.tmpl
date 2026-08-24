@@ -1,0 +1,135 @@
+#cloud-config
+# noc-pocket-probe - provisionamento via cloud-init
+# Gerado por Write-ProbeCard.ps1. NAO edite este arquivo no cartao: ele e
+# reescrito a cada execucao do gerador.
+#
+# O cloud-init so aplica isto no PRIMEIRO boot. Mudanca depois disso tem de
+# ser feita no sistema rodando (nmcli, systemctl), nao aqui.
+
+hostname: @@HOSTNAME@@
+manage_etc_hosts: true
+manage_resolv_conf: false
+timezone: @@TIMEZONE@@
+
+keyboard:
+  model: pc105
+  layout: br
+
+# O Zero 2 W nao tem relogio de bateria: acorda em 1970 ate o NTP corrigir.
+# Sem isto o apt recusa os indices por "data invalida" e a instalacao morre
+# antes de comecar.
+apt:
+  preserve_sources_list: true
+  conf: |
+    Acquire {
+      Check-Date "false";
+    };
+
+users:
+  - name: @@USERNAME@@
+    shell: /bin/bash
+    lock_passwd: false
+    passwd: "@@PASSWORD_HASH@@"
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    groups: [adm, dialout, netdev, plugdev, sudo, video]
+@@SSH_KEY_BLOCK@@
+
+ssh_pwauth: true
+
+write_files:
+  # ---------------------------------------------------------- diagnostico
+  - path: /usr/local/bin/noc-diag
+    owner: root:root
+    permissions: '0755'
+    content: |
+@@NOC_DIAG@@
+
+  - path: /usr/local/bin/probe-status
+    owner: root:root
+    permissions: '0755'
+    content: |
+@@PROBE_STATUS@@
+
+  - path: /usr/local/bin/noc-wifi
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Conecta o probe a uma rede Wi-Fi e memoriza para os proximos boots.
+      # O network-config do cloud-init so vale no primeiro boot; dai em diante
+      # e por aqui.
+      set -u
+      if [ $# -lt 1 ]; then
+        echo "uso: noc-wifi <SSID> [senha]"
+        echo "     noc-wifi --list      redes visiveis"
+        echo "     noc-wifi --saved     redes memorizadas"
+        exit 2
+      fi
+      case "$1" in
+        --list)  exec nmcli -f SSID,SIGNAL,SECURITY device wifi list ;;
+        --saved) exec nmcli -f NAME,TYPE,AUTOCONNECT connection show ;;
+      esac
+      SSID="$1"; PSK="${2:-}"
+      sudo rfkill unblock wifi
+      if [ -n "$PSK" ]; then
+        sudo nmcli device wifi connect "$SSID" password "$PSK"
+      else
+        sudo nmcli device wifi connect "$SSID"
+      fi
+
+  # ------------------------------------------- instalacao diferida (rede)
+  - path: /usr/local/sbin/noc-probe-setup.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+@@SETUP_SCRIPT@@
+
+  - path: /etc/systemd/system/noc-probe-setup.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=noc-pocket-probe - instala as ferramentas de NOC
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=!/var/lib/noc-probe/setup.done
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/noc-probe-setup.sh
+      RemainAfterExit=no
+      TimeoutStartSec=2700
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/noc-probe/diag.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      # Sobrescreve os padroes do noc-diag. Descomente o que quiser mudar.
+      # ANCHORS="1.1.1.1 8.8.8.8"
+      # DNS_PROBE=cloudflare.com
+      # CAPTIVE_URL=http://connectivitycheck.gstatic.com/generate_204
+      # IPERF_SERVER=iperf.seu-dominio.com.br
+
+  - path: /etc/profile.d/99-noc-probe.sh
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [ -n "$PS1" ] && command -v probe-status >/dev/null 2>&1 && probe-status
+@@WIFI_WRITE_FILES@@
+@@USB_WRITE_FILES@@
+
+runcmd:
+  - [ systemctl, enable, --now, ssh ]
+  - [ rfkill, unblock, wifi ]
+  # ping e arping com raw socket, para o noc-diag rodar sem sudo
+  - [ setcap, 'cap_net_raw+ep', /usr/bin/ping ]
+  - [ systemctl, enable, noc-probe-setup.service ]
+  # --no-block: sem rede este servico fica esperando network-online e nao
+  # pode segurar o resto do boot.
+  - [ systemctl, start, --no-block, noc-probe-setup.service ]
+@@USB_RUNCMD@@
+
+final_message: "noc-pocket-probe pronto em $UPTIME s. As ferramentas de NOC instalam em segundo plano - veja /var/log/noc-probe-setup.log"

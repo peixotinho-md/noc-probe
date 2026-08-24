@@ -1,0 +1,9 @@
+# Os scripts do payload sao gravados no cartao e executados no Linux.
+# Sem isto, um clone com core.autocrlf=true os traria com CRLF, e o shebang
+# viraria "#!/bin/bash\r" -- o kernel nao acha o interpretador.
+*.sh    text eol=lf
+*.tmpl  text eol=lf
+*.py    text eol=lf
+*.env   text eol=lf
+*.md    text eol=lf
+*.ps1   text eol=crlf

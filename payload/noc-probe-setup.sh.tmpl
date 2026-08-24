@@ -1,0 +1,45 @@
+#!/bin/bash
+# noc-pocket-probe - instalacao das ferramentas de NOC
+# Gerado por Write-ProbeCard.ps1 e embutido no user-data do cloud-init.
+#
+# Roda como oneshot no primeiro boot em que houver rede. Se nao houver, sai
+# com erro e o systemd tenta de novo no boot seguinte: o carimbo
+# /var/lib/noc-probe/setup.done so e criado no sucesso. E por isso que a
+# instalacao NAO usa o "packages:" do cloud-init, que e tiro unico e nao
+# repete se o probe nascer sem internet.
+set -u
+exec >>/var/log/noc-probe-setup.log 2>&1
+echo "=== setup $(date -Is) ==="
+
+export DEBIAN_FRONTEND=noninteractive
+PACKAGES='@@PACKAGES@@'
+
+if ! ping -n -c 1 -W 3 1.1.1.1 >/dev/null 2>&1 && ! getent hosts deb.debian.org >/dev/null 2>&1; then
+   echo "sem rede - tenta de novo no proximo boot"
+   exit 1
+fi
+
+if ! apt-get update; then
+   echo "ERRO: apt-get update falhou - tenta de novo no proximo boot"
+   exit 1
+fi
+if ! apt-get install -y --no-install-recommends $PACKAGES; then
+   echo "ERRO: instalacao de pacotes falhou - tenta de novo no proximo boot"
+   exit 1
+fi
+
+# arping so existe depois do apt; sem a capability o noc-diag pediria sudo
+setcap cap_net_raw+ep /usr/sbin/arping 2>/dev/null
+setcap cap_net_raw+ep /usr/bin/ping 2>/dev/null
+
+# --------------------------------------------------------------------- zram
+@@ZRAM_BLOCK@@
+
+# ------------------------------------------------ dhcp na interface usb0
+@@USB_BLOCK@@
+
+mkdir -p /var/lib/noc-probe
+date -Is > /var/lib/noc-probe/setup.done
+systemctl disable noc-probe-setup.service
+echo "=== setup concluido $(date -Is) ==="
+exit 0

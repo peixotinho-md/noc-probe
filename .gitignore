@@ -1,0 +1,12 @@
+# Contem senha e PSK de Wi-Fi - NUNCA versionar
+config.env
+*.log
+*.img
+*.zip
+
+# Saida do -DryRun (contem hash de senha)
+out/
+
+# Transcricoes exportadas da sessao (/export) - podem conter segredos
+20*-this-session-*.txt
+*.transcript.txt
